@@ -85,6 +85,7 @@ class Renderer: NSObject, MTKViewDelegate {
     private var sphereBuffer: MTLBuffer!
     private var sphereCountBuffer: MTLBuffer!
     private var cameraBuffer: MTLBuffer!
+    private var outputTexture: MTLTexture!
 
     var pipelineState: MTLComputePipelineState
 
@@ -111,6 +112,7 @@ class Renderer: NSObject, MTKViewDelegate {
         metalKitView.colorPixelFormat = MTLPixelFormat.bgra8Unorm_srgb
 
 
+
         let library = device.makeDefaultLibrary()!
         let function = library.makeFunction(name: "raytrace")!
         self.pipelineState = try! device.makeComputePipelineState(function: function)
@@ -123,6 +125,9 @@ class Renderer: NSObject, MTKViewDelegate {
         self.cameraBuffer = self.device.makeBuffer(length: MemoryLayout<Camera>.stride, options: [.storageModeShared])!
         let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
         ptr.pointee = camera
+
+        // Output Offscreen buffer
+        createOutputTexture(width: Int(metalKitView.drawableSize.width), height: Int(metalKitView.drawableSize.height))
     }
 
 
@@ -135,7 +140,7 @@ class Renderer: NSObject, MTKViewDelegate {
         encoder.setComputePipelineState(pipelineState)
 
         // loading of our data
-        encoder.setTexture(drawable.texture, index: 0)
+        encoder.setTexture(outputTexture, index: 0)
         encoder.setBuffer(sphereBuffer, offset: 0, index: 0)
         encoder.setBuffer(sphereCountBuffer, offset: 0, index: 1)
         encoder.setBuffer(cameraBuffer, offset: 0, index: 2)
@@ -146,11 +151,31 @@ class Renderer: NSObject, MTKViewDelegate {
         //we device by w to get h we have a 2D block (w x h)
 
         let tgSize = MTLSize(width: w, height: max(1, h), depth: 1) // defines thread group size, 2D shape since depth is 1.
-        let grid = MTLSize(width: drawable.texture.width, height: drawable.texture.height, depth: 1) // defines number of threads to dispatch (one thread = 1 pixel)
+        let grid = MTLSize(width: outputTexture.width, height: outputTexture.height, depth: 1) // defines number of threads to dispatch (one thread = 1 pixel)
         encoder.dispatchThreads(grid, threadsPerThreadgroup: tgSize) // we could just have 1D shape...
 
         encoder.endEncoding()
-
+        let start = CACurrentMediaTime()
+        // submit command buffer
+        commandBuffer.addCompletedHandler { _ in
+            let duration = CACurrentMediaTime() - start
+            print("Shader 'frame' rate is: \(1 / duration) Hz")
+        }
+ // We blit the offscreen buffer to the screen
+        if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
+              blitEncoder.copy(from: outputTexture,
+                               sourceSlice: 0,
+                               sourceLevel: 0,
+                               sourceOrigin: MTLOrigin(x:0,y:0,z:0),
+                               sourceSize: MTLSize(width: outputTexture.width,
+                                                   height: outputTexture.height,
+                                                   depth: 1),
+                               to: drawable.texture,
+                               destinationSlice: 0,
+                               destinationLevel: 0,
+                               destinationOrigin: MTLOrigin(x:0,y:0,z:0))
+              blitEncoder.endEncoding()
+          }
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
@@ -158,8 +183,17 @@ class Renderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         /// Respond to drawable size or orientation changes here
 
-        let aspect = Float(size.width) / Float(size.height)
-        projectionMatrix = matrix_perspective_right_hand(fovyRadians: radians_from_degrees(65), aspectRatio:aspect, nearZ: 0.1, farZ: 100.0)
+        createOutputTexture(width: Int(size.width), height: Int(size.height))
+    }
+
+    func createOutputTexture(width: Int, height: Int) {
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,
+                                                            width: width,
+                                                            height: height,
+                                                            mipmapped: false)
+        desc.usage = [.shaderWrite, .shaderRead]
+        desc.storageMode = .private
+        outputTexture = device.makeTexture(descriptor: desc)
     }
 }
 
