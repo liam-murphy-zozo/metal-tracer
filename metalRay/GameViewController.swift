@@ -13,12 +13,14 @@ class TracerMTKView: MTKView {
     weak var inputDelegate: RendererInputDelegate?
 
     override func keyDown(with event: NSEvent) {
-//        print("Key pressed: \(event.charactersIgnoringModifiers ?? "")")
-        inputDelegate?.didPressKey(event.charactersIgnoringModifiers ?? " ")
+        inputDelegate?.didKeyDown(event.charactersIgnoringModifiers ?? " ")
+    }
+
+    override func keyUp(with event: NSEvent) {
+        inputDelegate?.didKeyUp(event.charactersIgnoringModifiers ?? " ")
     }
 
     override func mouseMoved(with event: NSEvent) {
-//        print("Mouse moved: dx=\(event.deltaX), dy=\(event.deltaY)")
         inputDelegate?.didMoveMouse(deltaX: Float(event.deltaX), deltaY: Float(event.deltaY))
     }
 

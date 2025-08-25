@@ -42,6 +42,9 @@ Ray hitSphere(thread Ray& ray, constant Sphere& s, thread float& t) {
             float t_1 = (-b + metal::sqrt(discriminant)) / (2.0 * a);
             t = t_0 < t_1 ? t_0 : t_1;
         }
+        if (t < 0) {
+            t=1e20;
+        }
         // calculate norm
         float3 hit_pos = ray.origin + t * ray.direction;
         float3 normal = metal::normalize(hit_pos - s.position); // could speed up by dividing by radius instead of using normalize?
@@ -65,8 +68,8 @@ kernel void raytrace(
         Ray castingRay;
         castingRay.origin = camera.position;
         float4 forward = camera.orientation[2] * camera.distToPlane;
-        float4 left = camera.orientation[0] * gid.x*widthStride - ( widthStride * output.get_width()/2);
-        float4 up = camera.orientation[1]   * gid.y*heightStride - (heightStride * output.get_height()/2);
+        float4 left = camera.orientation[0] * (gid.x*widthStride - ( widthStride * output.get_width()/2));
+        float4 up = camera.orientation[1]   * (gid.y*heightStride - (heightStride * output.get_height()/2));
         float4 newDir = forward + left + up;
 
         castingRay.direction = {newDir.x , newDir.y, newDir.z};

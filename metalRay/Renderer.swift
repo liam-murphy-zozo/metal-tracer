@@ -87,22 +87,59 @@ struct Ray {
     var dir: SIMD3<Float>
 }
 
-enum RendererError: Error {
-    case badVertexDescriptor
-}
-
 protocol RendererInputDelegate: AnyObject {
-    func didPressKey(_ key: String)
     func didMoveMouse(deltaX: Float, deltaY: Float)
+    func didKeyDown(_ key: String)
+    func didKeyUp(_ key: String)
 }
 
 class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
-    func didPressKey(_ key: String) {
 
+    func didKeyUp(_ key: String) {
+        print("key up: \(key)")
+        switch key {
+            case "w":
+            isWKeyPressed = false
+            print("W key released")
+        case "s":
+            isSKeyPressed = false
+        case "a":
+            isAKeyPressed = false
+        case "d":
+            isDKeyPressed = false
+        default:
+            break
+        }
     }
-    
+
+    func didKeyDown(_ key: String) {
+        switch key {
+            case "w":
+            isWKeyPressed = true
+            print("W key pressed")
+        case "s":
+            isSKeyPressed = true
+        case "a":
+            isAKeyPressed = true
+        case "d":
+            isDKeyPressed = true
+        default:
+            break
+        }
+    }
+
+    private var isWKeyPressed = false
+    private var isSKeyPressed = false
+    private var isAKeyPressed = false
+    private var isDKeyPressed = false
+
     func didMoveMouse(deltaX: Float, deltaY: Float) {
         print(deltaX, deltaY)
+        let xRot = matrix4x4_rotation(radians: -deltaX/200, axis: SIMD3<Float>(0, 1, 0))
+        let yRot = matrix4x4_rotation(radians: deltaY/400, axis: SIMD3<Float>(1, 0, 0))
+        self.camera.orientation = yRot * xRot * self.camera.orientation
+        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
+        ptr.pointee = camera
     }
     
 
@@ -121,11 +158,11 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
     let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5),
                               Sphere(position: SIMD3<Float>(5,5,-10), radius: 10)]
-    let camera = Camera(position: SIMD3<Float>(0, 0, 10),
+    var camera = Camera(position: SIMD3<Float>(0, 0, 10),
                         orientation: camera_inital_transform(),
-                        distanceToPlane: 50,
-                        height: 700,
-                        width: 700)
+                        distanceToPlane: 10,
+                        height: 40,
+                        width: 40)
     @MainActor
     init?(metalKitView: TracerMTKView) {
         self.device = metalKitView.device! // MTLCreateSystemDefaultDevice()
@@ -155,6 +192,27 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
 
     func draw(in view: MTKView) {
+// Camera update
+        let cameraPointDir = SIMD3(camera.orientation.columns.2.x, camera.orientation.columns.2.y, camera.orientation.columns.2.z)
+        let cameraLeftDir = SIMD3(camera.orientation.columns.0.x, camera.orientation.columns.0.y, camera.orientation.columns.0.z)
+        if isWKeyPressed {
+            self.camera.position = camera.position + 0.25 * cameraPointDir;
+        }
+
+        if isSKeyPressed {
+            self.camera.position = camera.position - 0.25 * cameraPointDir;
+        }
+
+        if isDKeyPressed {
+            self.camera.position = camera.position + 0.25 * cameraLeftDir;
+        }
+
+        if isAKeyPressed {
+            self.camera.position = camera.position - 0.25 * cameraLeftDir;
+        }
+        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
+        ptr.pointee = camera
+
         /// Per frame updates hare
         guard let drawable = view.currentDrawable,
         let commandBuffer = commandQueue.makeCommandBuffer(),
