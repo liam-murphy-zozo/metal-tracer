@@ -7,13 +7,23 @@
 
 import Cocoa
 
-@main
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     
-    @IBOutlet var window: NSWindow!
+    var window: NSWindow!
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered, defer: false
+        )
+        window.center()
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+
+        let vc = GameViewController()
+        self.window.contentViewController = vc
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {

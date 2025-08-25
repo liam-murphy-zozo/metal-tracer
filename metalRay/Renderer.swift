@@ -5,7 +5,21 @@
 //  Created by Liam Murphy on 2025/08/24.
 //
 
-// Our platform independent renderer class
+// TODO LIST:
+// - Improve camera math, allow for transformation
+// - User Input for camera control
+// - Multi Sampling per pixel
+// - Iterative path tracing (area lights)
+// - Mesh loader
+// - Triangle/ Mesh Rendering
+// - Pack all objects into one uniform
+// - Support multiple material types
+// - glass support
+// - BVH for mesh
+// - Mesh and memory optimizations
+// - interactive GUI?
+// - transformation matrices for objects (actually transforms camera or ray?)
+//
 
 import Metal
 import MetalKit
@@ -89,22 +103,18 @@ class Renderer: NSObject, MTKViewDelegate {
 
     var pipelineState: MTLComputePipelineState
 
-
-
-//    let inFlightSemaphore = DispatchSemaphore(value: maxBuffersInFlight)
-
     var projectionMatrix: matrix_float4x4 = matrix_float4x4()
 
 
     let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5),
                               Sphere(position: SIMD3<Float>(5,5,-10), radius: 10)]
-    let camera = Camera(position: SIMD3<Float>(0, 0, 5),
+    let camera = Camera(position: SIMD3<Float>(0, 0, 10),
                         direction: SIMD3<Float>(0, 0, -1),
-                        distanceToPlane: 5,
-                        height: 30,
-                        width: 30)
+                        distanceToPlane: 50,
+                        height: 700,
+                        width: 700)
     @MainActor
-    init?(metalKitView: MTKView) {
+    init?(metalKitView: TracerMTKView) {
         self.device = metalKitView.device! // MTLCreateSystemDefaultDevice()
         self.commandQueue = self.device.makeCommandQueue()!
 
@@ -159,7 +169,7 @@ class Renderer: NSObject, MTKViewDelegate {
         // submit command buffer
         commandBuffer.addCompletedHandler { _ in
             let duration = CACurrentMediaTime() - start
-            print("Shader 'frame' rate is: \(1 / duration) Hz")
+//            print("Shader 'frame' rate is: \(1 / duration) Hz")
         }
  // We blit the offscreen buffer to the screen
         if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
