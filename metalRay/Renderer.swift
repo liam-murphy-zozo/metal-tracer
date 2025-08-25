@@ -63,14 +63,14 @@ struct Sphere {
 
 struct Camera {
     var position: SIMD3<Float>
-    var direction: SIMD3<Float>
+    var orientation: matrix_float4x4
     var distanceToPlane: Float
     var height: Float
     var width: Float
 
-    init(position: SIMD3<Float>, direction: SIMD3<Float>, distanceToPlane: Float, height: Float, width: Float) {
+    init(position: SIMD3<Float>, orientation: matrix_float4x4, distanceToPlane: Float, height: Float, width: Float) {
         self.position = position
-        self.direction = direction
+        self.orientation = orientation
         self.distanceToPlane = distanceToPlane
         self.height = height
         self.width = width
@@ -91,7 +91,20 @@ enum RendererError: Error {
     case badVertexDescriptor
 }
 
-class Renderer: NSObject, MTKViewDelegate {
+protocol RendererInputDelegate: AnyObject {
+    func didPressKey(_ key: String)
+    func didMoveMouse(deltaX: Float, deltaY: Float)
+}
+
+class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
+    func didPressKey(_ key: String) {
+
+    }
+    
+    func didMoveMouse(deltaX: Float, deltaY: Float) {
+        print(deltaX, deltaY)
+    }
+    
 
     public let device: MTLDevice
     let commandQueue: MTLCommandQueue
@@ -109,7 +122,7 @@ class Renderer: NSObject, MTKViewDelegate {
     let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5),
                               Sphere(position: SIMD3<Float>(5,5,-10), radius: 10)]
     let camera = Camera(position: SIMD3<Float>(0, 0, 10),
-                        direction: SIMD3<Float>(0, 0, -1),
+                        orientation: camera_inital_transform(),
                         distanceToPlane: 50,
                         height: 700,
                         width: 700)
@@ -205,6 +218,10 @@ class Renderer: NSObject, MTKViewDelegate {
         desc.storageMode = .private
         outputTexture = device.makeTexture(descriptor: desc)
     }
+
+    func mtkView(_ view: MTKView, mouseMoved event: NSEvent) {
+        print("recieved")
+    }
 }
 
 
@@ -220,6 +237,12 @@ func matrix4x4_rotation(radians: Float, axis: SIMD3<Float>) -> matrix_float4x4 {
                                          vector_float4(x * y * ci - z * st,     ct + y * y * ci, z * y * ci + x * st, 0),
                                          vector_float4(x * z * ci + y * st, y * z * ci - x * st,     ct + z * z * ci, 0),
                                          vector_float4(                  0,                   0,                   0, 1)))
+}
+
+func camera_inital_transform() -> matrix_float4x4 {
+    var mat = matrix4x4_translation(0, 0, -10)
+    mat.columns.2.z = -1 // flip the z
+    return mat
 }
 
 func matrix4x4_translation(_ translationX: Float, _ translationY: Float, _ translationZ: Float) -> matrix_float4x4 {

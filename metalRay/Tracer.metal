@@ -15,7 +15,7 @@ struct Sphere {
 
 struct Camera {
     float3 position;
-    float3 direction;
+    matrix_float4x4 orientation;
     float distToPlane;
     float height;
     float width;
@@ -24,8 +24,6 @@ struct Camera {
 struct Ray {
     float3 origin;
     float3 direction;
-
-
 };
 
 Ray hitSphere(thread Ray& ray, constant Sphere& s, thread float& t) {
@@ -66,7 +64,12 @@ kernel void raytrace(
 
         Ray castingRay;
         castingRay.origin = camera.position;
-        castingRay.direction = float3(gid.x*widthStride - ( widthStride * output.get_width()/2), gid.y*heightStride - (heightStride * output.get_height()/2), -1*camera.distToPlane);// camera.position
+        float4 forward = camera.orientation[2] * camera.distToPlane;
+        float4 left = camera.orientation[0] * gid.x*widthStride - ( widthStride * output.get_width()/2);
+        float4 up = camera.orientation[1]   * gid.y*heightStride - (heightStride * output.get_height()/2);
+        float4 newDir = forward + left + up;
+
+        castingRay.direction = {newDir.x , newDir.y, newDir.z};
         castingRay.direction = metal::normalize(castingRay.direction);
 
         float3 color = float3(0.0);
