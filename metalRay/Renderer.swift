@@ -25,67 +25,6 @@ import Metal
 import MetalKit
 import simd
 
-struct Sphere {
-    var position: SIMD3<Float>
-    var radius: Float
-
-    init(position: SIMD3<Float>, radius: Float) {
-        self.position = position
-        self.radius = radius
-    }
-
-    func isHit(by ray: Ray) -> Ray { // return the normal if hit, otherwise return 000
-        let oc = ray.origin - position
-        let a = dot(ray.dir, ray.dir) // We can eliminate this if we assume it is normalised.
-        let b = 2.0 * dot(oc, ray.dir)
-        let c = dot(oc, oc) - radius * radius
-        
-        let discriminant = b * b - 4.0 * a * c
-        
-        if discriminant >= 0.0 {
-            var t: Float
-            if discriminant == 0 {
-                t = -b / (2.0 * a)
-            } else {
-                let t_0 = (-b - sqrt(discriminant)) / (2.0 * a)
-                let t_1 = (-b + sqrt(discriminant)) / (2.0 * a)
-                t = t_0 < t_1 ? t_0 : t_1
-            }
-            // calculate norm
-            let hit_pos = ray.origin + t * ray.dir
-            let normal = normalize(hit_pos - position) // could speed up by dividing by radius instead of using normalize?
-            return Ray(origin: hit_pos, dir: normal)
-        }
-
-        return Ray(origin: .zero, dir: .zero)
-    }
-}
-
-struct Camera {
-    var position: SIMD3<Float>
-    var orientation: matrix_float4x4
-    var distanceToPlane: Float
-    var height: Float
-    var width: Float
-
-    init(position: SIMD3<Float>, orientation: matrix_float4x4, distanceToPlane: Float, height: Float, width: Float) {
-        self.position = position
-        self.orientation = orientation
-        self.distanceToPlane = distanceToPlane
-        self.height = height
-        self.width = width
-    }
-}
-
-struct Ray {
-    init(origin: SIMD3<Float>, dir: SIMD3<Float>) {
-        self.origin = origin
-        self.dir = dir
-    }
-
-    var origin: SIMD3<Float>
-    var dir: SIMD3<Float>
-}
 
 protocol RendererInputDelegate: AnyObject {
     func didMoveMouse(deltaX: Float, deltaY: Float)
@@ -95,53 +34,10 @@ protocol RendererInputDelegate: AnyObject {
 
 class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
-    func didKeyUp(_ key: String) {
-        print("key up: \(key)")
-        switch key {
-            case "w":
-            isWKeyPressed = false
-            print("W key released")
-        case "s":
-            isSKeyPressed = false
-        case "a":
-            isAKeyPressed = false
-        case "d":
-            isDKeyPressed = false
-        default:
-            break
-        }
-    }
-
-    func didKeyDown(_ key: String) {
-        switch key {
-            case "w":
-            isWKeyPressed = true
-            print("W key pressed")
-        case "s":
-            isSKeyPressed = true
-        case "a":
-            isAKeyPressed = true
-        case "d":
-            isDKeyPressed = true
-        default:
-            break
-        }
-    }
-
     private var isWKeyPressed = false
     private var isSKeyPressed = false
     private var isAKeyPressed = false
     private var isDKeyPressed = false
-
-    func didMoveMouse(deltaX: Float, deltaY: Float) {
-        print(deltaX, deltaY)
-        let xRot = matrix4x4_rotation(radians: -deltaX/200, axis: SIMD3<Float>(0, 1, 0))
-        let yRot = matrix4x4_rotation(radians: deltaY/400, axis: SIMD3<Float>(1, 0, 0))
-        self.camera.orientation = yRot * xRot * self.camera.orientation
-        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
-        ptr.pointee = camera
-    }
-    
 
     public let device: MTLDevice
     let commandQueue: MTLCommandQueue
@@ -240,7 +136,7 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         // submit command buffer
         commandBuffer.addCompletedHandler { _ in
             let duration = CACurrentMediaTime() - start
-//            print("Shader 'frame' rate is: \(1 / duration) Hz")
+            print("Shader 'frame' rate is: \(1 / duration) Hz")
         }
  // We blit the offscreen buffer to the screen
         if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
@@ -277,49 +173,45 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         outputTexture = device.makeTexture(descriptor: desc)
     }
 
-    func mtkView(_ view: MTKView, mouseMoved event: NSEvent) {
-        print("recieved")
+    // keyboard input / mouse input delegate implementation
+    func didKeyUp(_ key: String) {
+        switch key {
+            case "w":
+            isWKeyPressed = false
+        case "s":
+            isSKeyPressed = false
+        case "a":
+            isAKeyPressed = false
+        case "d":
+            isDKeyPressed = false
+        default:
+            break
+        }
+    }
+
+    func didKeyDown(_ key: String) {
+        switch key {
+            case "w":
+            isWKeyPressed = true
+        case "s":
+            isSKeyPressed = true
+        case "a":
+            isAKeyPressed = true
+        case "d":
+            isDKeyPressed = true
+        default:
+            break
+        }
+    }
+
+    func didMoveMouse(deltaX: Float, deltaY: Float) {
+        let upAxis =  SIMD3<Float>(camera.orientation.columns.1.x, camera.orientation.columns.1.y, camera.orientation.columns.1.z)
+        let leftAxis =  SIMD3<Float>(camera.orientation.columns.0.x, camera.orientation.columns.0.y, camera.orientation.columns.0.z)
+        let xRot = matrix4x4_rotation(radians: -deltaX/250, axis: upAxis)
+        let yRot = matrix4x4_rotation(radians: deltaY/250, axis: leftAxis)
+        self.camera.orientation = yRot * xRot * self.camera.orientation
+        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
+        ptr.pointee = camera
     }
 }
 
-
-
-// Generic matrix math utility functions
-func matrix4x4_rotation(radians: Float, axis: SIMD3<Float>) -> matrix_float4x4 {
-    let unitAxis = normalize(axis)
-    let ct = cosf(radians)
-    let st = sinf(radians)
-    let ci = 1 - ct
-    let x = unitAxis.x, y = unitAxis.y, z = unitAxis.z
-    return matrix_float4x4.init(columns:(vector_float4(    ct + x * x * ci, y * x * ci + z * st, z * x * ci - y * st, 0),
-                                         vector_float4(x * y * ci - z * st,     ct + y * y * ci, z * y * ci + x * st, 0),
-                                         vector_float4(x * z * ci + y * st, y * z * ci - x * st,     ct + z * z * ci, 0),
-                                         vector_float4(                  0,                   0,                   0, 1)))
-}
-
-func camera_inital_transform() -> matrix_float4x4 {
-    var mat = matrix4x4_translation(0, 0, -10)
-    mat.columns.2.z = -1 // flip the z
-    return mat
-}
-
-func matrix4x4_translation(_ translationX: Float, _ translationY: Float, _ translationZ: Float) -> matrix_float4x4 {
-    return matrix_float4x4.init(columns:(vector_float4(1, 0, 0, 0),
-                                         vector_float4(0, 1, 0, 0),
-                                         vector_float4(0, 0, 1, 0),
-                                         vector_float4(translationX, translationY, translationZ, 1)))
-}
-
-func matrix_perspective_right_hand(fovyRadians fovy: Float, aspectRatio: Float, nearZ: Float, farZ: Float) -> matrix_float4x4 {
-    let ys = 1 / tanf(fovy * 0.5)
-    let xs = ys / aspectRatio
-    let zs = farZ / (nearZ - farZ)
-    return matrix_float4x4.init(columns:(vector_float4(xs,  0, 0,   0),
-                                         vector_float4( 0, ys, 0,   0),
-                                         vector_float4( 0,  0, zs, -1),
-                                         vector_float4( 0,  0, zs * nearZ, 0)))
-}
-
-func radians_from_degrees(_ degrees: Float) -> Float {
-    return (degrees / 180) * .pi
-}
