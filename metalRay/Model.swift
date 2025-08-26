@@ -27,6 +27,10 @@ struct Ray {
 struct SceneUniform {
     var camera: Camera
     var lightPosition: SIMD3<Float>
+    var numSpheres: Int32
+}
+
+struct Scene { // Used for construction of scene, not to be transferred to GPU
+    var sceneUniform: SceneUniform
     var spheres: [Sphere]
-    var numSpheres: Int
 }

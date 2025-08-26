@@ -26,6 +26,12 @@ struct Ray {
     float3 direction;
 };
 
+struct SceneUniform {
+    Camera camera;
+    float3 lightPosition;
+    int numSpheres;
+};
+
 Ray hitSphere(thread Ray& ray, constant Sphere& s, thread float& t) {
     float3 oc = ray.origin - s.position;
     float a = metal::dot(ray.direction, ray.direction); // We can eliminate this if we assume it is normalised.
@@ -56,12 +62,12 @@ Ray hitSphere(thread Ray& ray, constant Sphere& s, thread float& t) {
 
 kernel void raytrace(
     metal::texture2d<float, metal::access::write> output [[texture(0)]],  // Texture to render to.
-    constant Sphere* spheres [[buffer(0)]],  // Ptr to first sphere in the sphere buffer.
-    constant int& sphereCount [[buffer(1)]], //
-    constant Camera& camera [[buffer(2)]], // there is a limit of 31 buffers to be used. For now this is okay, but in future we will want to be more efficient.
-    uint2 gid [[thread_position_in_grid]]) {
-        if (gid.x >= output.get_width() || gid.y >= output.get_height()) return; // check if this occurs...
+                     constant SceneUniform& scene [[buffer(0)]],
+                     constant Sphere* spheres [[buffer(1)]],
+                     uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= output.get_width() || gid.y >= output.get_height()) return; // check if this
 
+        Camera camera = scene.camera;
         float widthStride = camera.width / output.get_width();
         float heightStride = camera.height / output.get_height();
 
@@ -77,7 +83,7 @@ kernel void raytrace(
 
         float3 color = float3(0.0);
         float closest_t = 1e19;
-        for (int i = 0; i < sphereCount; ++i) {
+        for (int i = 0; i < scene.numSpheres; ++i) {
             float t;
             Ray normal = hitSphere(castingRay, spheres[i], t);
             if (t < closest_t ) {

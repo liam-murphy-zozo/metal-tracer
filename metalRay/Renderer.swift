@@ -6,8 +6,6 @@
 //
 
 // TODO LIST:
-// - Improve camera math, allow for transformation
-// - User Input for camera control
 // - Multi Sampling per pixel
 // - Iterative path tracing (area lights)
 // - Mesh loader
@@ -25,7 +23,6 @@ import Metal
 import MetalKit
 import simd
 
-
 protocol RendererInputDelegate: AnyObject {
     func didMoveMouse(deltaX: Float, deltaY: Float)
     func didKeyDown(_ key: String)
@@ -42,23 +39,13 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     public let device: MTLDevice
     let commandQueue: MTLCommandQueue
 
+    var scene: Scene
+    private var sceneUniformBuffer: MTLBuffer!
     private var sphereBuffer: MTLBuffer!
-    private var sphereCountBuffer: MTLBuffer!
-    private var cameraBuffer: MTLBuffer!
     private var outputTexture: MTLTexture!
 
     var pipelineState: MTLComputePipelineState
 
-    var projectionMatrix: matrix_float4x4 = matrix_float4x4()
-
-
-    let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5),
-                              Sphere(position: SIMD3<Float>(5,5,-10), radius: 10)]
-    var camera = Camera(position: SIMD3<Float>(0, 0, 10),
-                        orientation: camera_inital_transform(),
-                        distanceToPlane: 10,
-                        height: 40,
-                        width: 40)
     @MainActor
     init?(metalKitView: TracerMTKView) {
         self.device = metalKitView.device! // MTLCreateSystemDefaultDevice()
@@ -67,20 +54,18 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         metalKitView.framebufferOnly = false // required to allow us to write to drawbable from compute
         metalKitView.colorPixelFormat = MTLPixelFormat.bgra8Unorm_srgb
 
-
+        scene = createScene()
 
         let library = device.makeDefaultLibrary()!
         let function = library.makeFunction(name: "raytrace")!
         self.pipelineState = try! device.makeComputePipelineState(function: function)
 
         super.init()
+        self.sceneUniformBuffer = self.device.makeBuffer(length: MemoryLayout<SceneUniform>.stride, options: [.storageModeShared])
+        let scenePtr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
+        scenePtr.pointee = scene.sceneUniform
 
-        self.sphereBuffer = self.device.makeBuffer(bytes: spheres, length: MemoryLayout<Sphere>.stride * spheres.count, options: [.storageModeShared])!
-        var count = Int32(spheres.count)
-        self.sphereCountBuffer = self.device.makeBuffer(bytes: &count, length: MemoryLayout<Int32>.stride, options: [.storageModeShared])
-        self.cameraBuffer = self.device.makeBuffer(length: MemoryLayout<Camera>.stride, options: [.storageModeShared])!
-        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
-        ptr.pointee = camera
+        self.sphereBuffer = self.device.makeBuffer(bytes: scene.spheres, length: MemoryLayout<Sphere>.stride * scene.spheres.count, options: [.storageModeShared])!
 
         // Output Offscreen buffer
         createOutputTexture(width: Int(metalKitView.drawableSize.width), height: Int(metalKitView.drawableSize.height))
@@ -88,26 +73,24 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
 
     func draw(in view: MTKView) {
-// Camera update
-        let cameraPointDir = SIMD3(camera.orientation.columns.2.x, camera.orientation.columns.2.y, camera.orientation.columns.2.z)
-        let cameraLeftDir = SIMD3(camera.orientation.columns.0.x, camera.orientation.columns.0.y, camera.orientation.columns.0.z)
+        // Camera update
+        let cameraPointDir = scene.sceneUniform.camera.orientation.get2XYZ()
+        let cameraLeftDir = scene.sceneUniform.camera.orientation.get0XYZ()
+        let speed: Float = 0.25
         if isWKeyPressed {
-            self.camera.position = camera.position + 0.25 * cameraPointDir;
+            scene.sceneUniform.camera.position += (speed * cameraPointDir);
         }
-
         if isSKeyPressed {
-            self.camera.position = camera.position - 0.25 * cameraPointDir;
+            scene.sceneUniform.camera.position -= (speed * cameraPointDir);
         }
-
         if isDKeyPressed {
-            self.camera.position = camera.position + 0.25 * cameraLeftDir;
+            scene.sceneUniform.camera.position += (speed * cameraLeftDir);
         }
-
         if isAKeyPressed {
-            self.camera.position = camera.position - 0.25 * cameraLeftDir;
+            scene.sceneUniform.camera.position -=  (speed * cameraLeftDir);
         }
-        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
-        ptr.pointee = camera
+        let ptr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
+        ptr.pointee = scene.sceneUniform
 
         /// Per frame updates hare
         guard let drawable = view.currentDrawable,
@@ -118,11 +101,10 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
         // loading of our data
         encoder.setTexture(outputTexture, index: 0)
-        encoder.setBuffer(sphereBuffer, offset: 0, index: 0)
-        encoder.setBuffer(sphereCountBuffer, offset: 0, index: 1)
-        encoder.setBuffer(cameraBuffer, offset: 0, index: 2)
+        encoder.setBuffer(sceneUniformBuffer, offset: 0, index: 0)
+        encoder.setBuffer(sphereBuffer, offset: 0, index: 1)
 
-//one thread per pixel
+        //one thread per pixel
         let w = pipelineState.threadExecutionWidth // ussually 32 for apple gpus., some hardware properry on how wide things can be computed in paralell
         let h = pipelineState.maxTotalThreadsPerThreadgroup / w // max num threads in a thread group for the kernel/device. usually 512 or 1024
         //we device by w to get h we have a 2D block (w x h)
@@ -138,7 +120,7 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
             let duration = CACurrentMediaTime() - start
             print("Shader 'frame' rate is: \(1 / duration) Hz")
         }
- // We blit the offscreen buffer to the screen
+        // We blit the offscreen buffer to the screen
         if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
               blitEncoder.copy(from: outputTexture,
                                sourceSlice: 0,
@@ -205,13 +187,26 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     }
 
     func didMoveMouse(deltaX: Float, deltaY: Float) {
-        let upAxis =  SIMD3<Float>(camera.orientation.columns.1.x, camera.orientation.columns.1.y, camera.orientation.columns.1.z)
-        let leftAxis =  SIMD3<Float>(camera.orientation.columns.0.x, camera.orientation.columns.0.y, camera.orientation.columns.0.z)
+        let upAxis = scene.sceneUniform.camera.orientation.get1XYZ()
+        let leftAxis = scene.sceneUniform.camera.orientation.get0XYZ()
         let xRot = matrix4x4_rotation(radians: -deltaX/250, axis: upAxis)
         let yRot = matrix4x4_rotation(radians: deltaY/250, axis: leftAxis)
-        self.camera.orientation = yRot * xRot * self.camera.orientation
-        let ptr = cameraBuffer.contents().bindMemory(to: Camera.self, capacity: 1)
-        ptr.pointee = camera
+        self.scene.sceneUniform.camera.orientation = yRot * xRot * self.scene.sceneUniform.camera.orientation
+        let ptr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
+        ptr.pointee = self.scene.sceneUniform
     }
+}
+
+func createScene() -> Scene {
+    let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5),
+                              Sphere(position: SIMD3<Float>(5,5,-10), radius: 10)]
+    let camera = Camera(position: SIMD3<Float>(0, 0, 10),
+                        orientation: camera_inital_transform(),
+                        distanceToPlane: 10,
+                        height: 40,
+                        width: 40)
+
+    let sceneUniform = SceneUniform(camera: camera, lightPosition: SIMD3<Float>(0, 5, 0), numSpheres: Int32(spheres.count))
+    return Scene(sceneUniform: sceneUniform, spheres: spheres)
 }
 

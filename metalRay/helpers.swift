@@ -46,3 +46,22 @@ func matrix_perspective_right_hand(fovyRadians fovy: Float, aspectRatio: Float, 
 func radians_from_degrees(_ degrees: Float) -> Float {
     return (degrees / 180) * .pi
 }
+
+extension matrix_float4x4 {
+
+    func get0XYZ() -> SIMD3<Float> {
+        return SIMD3<Float>(columns.0.x, columns.0.y, columns.0.z)
+    }
+
+    func get1XYZ() -> SIMD3<Float> {
+        return SIMD3<Float>(columns.1.x, columns.1.y, columns.1.z)
+    }
+
+    func get2XYZ() -> SIMD3<Float> {
+        return SIMD3<Float>(columns.2.x, columns.2.y, columns.2.z)
+    }
+
+    func get3XYZ() -> SIMD3<Float> {
+        return SIMD3<Float>(columns.3.x, columns.3.y, columns.3.z)
+    }
+}
