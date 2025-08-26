@@ -198,15 +198,17 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 }
 
 func createScene() -> Scene {
-    let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5),
-                              Sphere(position: SIMD3<Float>(5,5,-10), radius: 10)]
-    let camera = Camera(position: SIMD3<Float>(0, 0, 10),
+    let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5, color: SIMD3<Float>(0.5, 0.5, 0)),
+                              Sphere(position: SIMD3<Float>(15,8,-10), radius: 10, color: SIMD3<Float>(0, 0.5, 0.5)),
+                              Sphere(position: SIMD3<Float>(-10,-5,-10), radius: 7, color: SIMD3<Float>(0, 0.5, 0.0)),
+                              Sphere(position: SIMD3<Float>(-10, 540,-100), radius: 500, color: SIMD3<Float>(1, 1, 1.0))]
+    let camera = Camera(position: SIMD3<Float>(0, 0, 20),
                         orientation: camera_inital_transform(),
-                        distanceToPlane: 10,
+                        distanceToPlane: 50,
                         height: 40,
                         width: 40)
 
-    let sceneUniform = SceneUniform(camera: camera, lightPosition: SIMD3<Float>(0, 5, 0), numSpheres: Int32(spheres.count))
+    let sceneUniform = SceneUniform(camera: camera, lightPosition: SIMD3<Float>(0, 0, 20), numSpheres: Int32(spheres.count))
     return Scene(sceneUniform: sceneUniform, spheres: spheres)
 }
 

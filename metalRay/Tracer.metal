@@ -11,6 +11,13 @@
 struct Sphere {
     float3 position;
     float radius;
+    float3 color;
+};
+
+struct Box {
+    float3 position;
+    float3 dimensions;
+    float3 color;
 };
 
 struct Camera {
@@ -32,9 +39,9 @@ struct SceneUniform {
     int numSpheres;
 };
 
-Ray hitSphere(thread Ray& ray, constant Sphere& s, thread float& t) {
+bool hitSphere(thread Ray& ray, constant Sphere& s, thread float& t, thread Ray& normal) {
     float3 oc = ray.origin - s.position;
-    float a = metal::dot(ray.direction, ray.direction); // We can eliminate this if we assume it is normalised.
+    float a = 1;// metal::dot(ray.direction, ray.direction); // We can eliminate this if we assume it is normalised.
     float b = 2.0 * metal::dot(oc, ray.direction);
     float c = metal::dot(oc, oc) - s.radius * s.radius;
 
@@ -48,16 +55,25 @@ Ray hitSphere(thread Ray& ray, constant Sphere& s, thread float& t) {
             float t_1 = (-b + metal::sqrt(discriminant)) / (2.0 * a);
             t = t_0 < t_1 ? t_0 : t_1;
         }
-        if (t < 0) {
-            t=1e20;
+        if (t<0) {
+            // case where intersection behind ray?
+            return false;
         }
+
         // calculate norm
         float3 hit_pos = ray.origin + t * ray.direction;
-        float3 normal = metal::normalize(hit_pos - s.position); // could speed up by dividing by radius instead of using normalize?
-        return Ray {hit_pos, normal };
+
+        normal = {hit_pos, metal::normalize(hit_pos - s.position)}; // could speed up by dividing by radius instead of using normalize?
+
+        return true;
     }
 
-    return Ray { float3(0), float3(0)};  // This is a real hack we should have a bool instead to check
+    return false;  // This is a real hack we should have a bool instead to check
+}
+
+bool hitBox(thread Ray& ray, constant Box& box, thread float& t) {
+
+    return false;
 }
 
 kernel void raytrace(
@@ -85,11 +101,12 @@ kernel void raytrace(
         float closest_t = 1e19;
         for (int i = 0; i < scene.numSpheres; ++i) {
             float t;
-            Ray normal = hitSphere(castingRay, spheres[i], t);
-            if (t < closest_t ) {
+            Ray normal;
+            bool isHit = hitSphere(castingRay, spheres[i], t, normal);
+            if (isHit && t < closest_t ) {
                 closest_t = t;
-                float3 lightSource {5, 10, 0};
-                color = float3(1,0,0) * metal::dot(normal.direction, metal::normalize(normal.origin-lightSource));
+
+                color = spheres[i].color * metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
             }
         }
 

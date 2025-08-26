@@ -7,8 +7,15 @@
 import simd
 
 struct Sphere {
-    var position: SIMD3<Float>
+    var position: SIMD3<Float> // X Y Z
     var radius: Float
+    var color: SIMD3<Float> // RGB
+}
+
+struct Box {
+    var position: SIMD3<Float> // Center
+    var dimensions: SIMD3<Float> // Width, Height, Depth
+    var color: SIMD3<Float> // RGB
 }
 
 struct Camera {
