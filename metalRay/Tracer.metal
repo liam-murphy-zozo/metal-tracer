@@ -146,45 +146,113 @@ Ray constructCameraRay(uint2 gid, constant Camera& camera, const float width, co
     return castingRay;
 }
 
-float3 TraceRay(Ray castingRay, const constant SceneUniform& scene, const constant Sphere* spheres, const constant Plane* planes, const constant Disc* discs) {
-    float3 color(0);
-    float closest_t = 1e19;
+enum MaterialType {
+    MATERIAL_NONE = -1,
+    MATERIAL_DIFFUSE = 0,
+    MATERIAL_LIGHT = 1,
+    MATERIAL_DIFFUSE_SHINY = 2
+};
+
+struct HitObject {
+    MaterialType material;
+    float3 color;
+    float3 hitNormal;
+    float3 hitPosition;
+    float hitDist;
+    bool didHit;
+};
+
+HitObject getHit(Ray castingRay,
+                 const constant SceneUniform& scene,
+                 const constant Sphere* spheres,
+                 const constant Plane* planes,
+                 constant Disc* discs) {
+
+    HitObject hitObj;
+    hitObj.didHit = false;
+    hitObj.hitDist = 1e19;
+
     for (int i = 0; i < scene.numSpheres; ++i) {
         float t;
         Ray normal;
         bool isHit = hitSphere(castingRay, spheres[i], t, normal);
-        if (isHit && t < closest_t ) {
-            closest_t = t;
-
-            color = spheres[i].color * metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
+        if (isHit && t < hitObj.hitDist ) {
+            hitObj.hitDist = t;
+            hitObj.material = MATERIAL_DIFFUSE;
+            hitObj.color = spheres[i].color;
+            hitObj.hitNormal = normal.direction;
+            hitObj.hitPosition = normal.origin;
+            hitObj.didHit = true;
         }
     }
 
-     for (int i = 0; i < scene.numPlanes; ++i) {
-         float t=1e20;
-         Ray normal;
+    for (int i = 0; i < scene.numPlanes; ++i) {
+        float t=1e20;
+        Ray normal;
 
-         bool isHit = hitPlane(castingRay, planes[i], t, normal);
+        bool isHit = hitPlane(castingRay, planes[i], t, normal);
 
-         if (isHit && t < closest_t ) {
-             closest_t = t;
-
-             color = planes[i].color * -1* metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
-         }
-     }
+        if (isHit && t < hitObj.hitDist ) {
+            hitObj.hitDist = t;
+            hitObj.material = MATERIAL_DIFFUSE;
+            hitObj.hitDist = t;
+            hitObj.color = planes[i].color;
+            hitObj.hitNormal = normal.direction;
+            hitObj.hitPosition = normal.origin;
+            hitObj.didHit = true;
+        }
+    }
 
     for (int i = 0; i < scene.numDiscs; ++i) {
-         float t=1e20;
-         Ray normal;
-         bool isHit = hitDisc(castingRay, discs[i], t, normal);
-         if (isHit && t < closest_t ) {
-             closest_t = t;
+        float t=1e20;
+        Ray normal;
+        bool isHit = hitDisc(castingRay, discs[i], t, normal);
+        if (isHit && t < hitObj.hitDist ) {
+            hitObj.hitDist = t;
+            hitObj.material = MATERIAL_LIGHT; // discs are lights for now..
+            hitObj.hitDist = t;
+            hitObj.color = spheres[i].color;
+            hitObj.hitNormal = normal.direction;
+            hitObj.hitPosition = normal.origin;
+            hitObj.didHit = true;
+        }
+    }
+    return hitObj;
+}
 
-             color = discs[i].color * -1* metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
-         }
-     }
+float3 TraceRay(const thread Ray& castingRay,
+                const constant SceneUniform& scene,
+                const constant Sphere* spheres,
+                const constant Plane* planes,
+                const constant Disc* discs,
+                uint seed,
+                uint depthLimit) {
 
-    return color;
+    float3 color(0);
+    Ray ray = castingRay;
+    for(uint i=0; i<depthLimit; ++i) {
+        HitObject hitObj = getHit(ray, scene, spheres, planes, discs);
+        if (!hitObj.didHit) return float3(0); // if we hit nothing, return black.
+
+        if (hitObj.material == MATERIAL_LIGHT) {
+            color*= float3(1); // solid light // THIS line aint right
+        }
+
+        if (hitObj.material == MATERIAL_DIFFUSE) {
+            // construct new ray from hitPoint using randomness. (Diffuse BRDF)
+            Ray bounceRay;
+            if(i==0){
+                color = hitObj.color;// * ;
+            }else {
+                //color *= hitObj.color * cosine ;
+            }
+
+
+        }
+    }
+
+
+    return color; //
 }
 
 kernel void raytrace(metal::texture2d<float, metal::access::write> output [[texture(0)]],  // Texture to render to.
@@ -197,11 +265,15 @@ kernel void raytrace(metal::texture2d<float, metal::access::write> output [[text
 
         Ray castingRay = constructCameraRay(gid, scene.camera, output.get_width(), output.get_height());
 
+        uint seed = gid.x * gid.y * 4096;
+        // to add sampling here...
         float3 color = TraceRay(castingRay,
                                 scene,
                                 spheres,
                                 planes,
-                                discs);
+                                discs,
+                                seed,
+                                5);
 
 
         output.write(float4(color,0), gid);
