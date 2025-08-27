@@ -3,22 +3,4 @@
    uuid = "6B068BC0-9443-4DC2-BFB7-9BCA3F18ADE2"
    type = "1"
    version = "2.0">
-   <Breakpoints>
-      <BreakpointProxy
-         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
-         <BreakpointContent
-            uuid = "271EF6EB-8582-468A-9CB0-140F1DE239E3"
-            shouldBeEnabled = "Yes"
-            ignoreCount = "0"
-            continueAfterRunningActions = "No"
-            filePath = "metalRay/Tracer.metal"
-            startingColumnNumber = "9223372036854775807"
-            endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "137"
-            endingLineNumber = "137"
-            landmarkName = "raytrace( metal::texture2d&lt;float, metal::access::write&gt; output [[texture(0)]], // Texture to render to. constant SceneUniform&amp; scene [[buffer(0)]], constant Sphere* spheres [[buffer(1)]], constant Plane* planes [[buffer(2)]], constant Disc* discs [[buffer(3)]], uint2 gid [[thread_position_in_grid]])"
-            landmarkType = "9">
-         </BreakpointContent>
-      </BreakpointProxy>
-   </Breakpoints>
 </Bucket>

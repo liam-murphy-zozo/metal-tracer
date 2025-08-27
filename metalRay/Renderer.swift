@@ -212,13 +212,16 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 }
 
 func createScene() -> Scene {
-    let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5, color: SIMD3<Float>(0.5, 0.5, 0)),
-                              Sphere(position: SIMD3<Float>(15,8,-10), radius: 10, color: SIMD3<Float>(0, 0.5, 0.5)),
-                              Sphere(position: SIMD3<Float>(-10,-5,-10), radius: 7, color: SIMD3<Float>(0, 0.5, 0.0)),
-                              Sphere(position: SIMD3<Float>(-10, 540,-100), radius: 1, color: SIMD3<Float>(1, 1, 1.0))]
+    let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-2), radius: 2, color: SIMD3<Float>(0.5, 0.5, 0)),
+                              Sphere(position: SIMD3<Float>(1,2,0), radius: 0.7, color: SIMD3<Float>(0, 0.5, 0.5)),
+                              Sphere(position: SIMD3<Float>(-2,-2,-3.1), radius: 1.2, color: SIMD3<Float>(0, 0.5, 0.0))]
 
-    let planes: [Plane] = [Plane(position: SIMD3<Float>(0,5,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1))]
-    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,25,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1), radius: 0)]
+    let planes: [Plane] = [Plane(position: SIMD3<Float>(0,3,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
+                           Plane(position: SIMD3<Float>(0,-4,0), normal: SIMD3<Float>(0,-1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
+                           Plane(position: SIMD3<Float>(4,0,0), normal: SIMD3<Float>(1,0,0), color: SIMD3<Float>(0.75,0,0)),
+                           Plane(position: SIMD3<Float>(-4,0,0), normal: SIMD3<Float>(-1,0,0), color: SIMD3<Float>(0,0.75,0)),
+                           Plane(position: SIMD3<Float>(0,0,-5), normal: SIMD3<Float>(0,0,-1), color: SIMD3<Float>(0.5,0.5,0.5))]
+    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,-3.9,0), normal: SIMD3<Float>(0,-1,0), color: SIMD3<Float>(1,1,1), radius: 1)]
     let camera = Camera(position: SIMD3<Float>(0, 0, 20),
                         orientation: camera_inital_transform(),
                         distanceToPlane: 50,
