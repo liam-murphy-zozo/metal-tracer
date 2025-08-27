@@ -8,6 +8,7 @@
 #include <metal_stdlib>
 #include <simd/simd.h>
 
+
 struct Sphere {
     float3 position;
     float radius;
@@ -18,6 +19,19 @@ struct Box {
     float3 position;
     float3 dimensions;
     float3 color;
+};
+
+struct Plane {
+    float3 position;
+    float3 normal;
+    float3 color;
+};
+
+struct Disc {
+    float3 position;
+    float3 normal;
+    float3 color;
+    float radius;
 };
 
 struct Camera {
@@ -37,9 +51,44 @@ struct SceneUniform {
     Camera camera;
     float3 lightPosition;
     int numSpheres;
+    int numPlanes;
+    int numDiscs;
 };
 
-bool hitSphere(thread Ray& ray, constant Sphere& s, thread float& t, thread Ray& normal) {
+bool hitDisc(const thread Ray& ray, constant Disc& p, thread float& t, thread Ray& normal) {
+    float temp_t = metal::dot((ray.origin-p.position), p.normal);
+    temp_t = temp_t / metal::dot(ray.direction, p.normal);
+    if (temp_t > FLT_EPSILON) {
+        float3 hitPoint = ray.origin + t* ray.direction;
+        if (metal::length_squared(hitPoint - p.position) > (p.radius*p.radius)) {
+            return false;
+        }
+        t = temp_t;
+        normal = {hitPoint, p.normal};
+        return true;
+    }
+    return false;
+}
+
+bool hitPlane(const thread Ray& ray, constant Plane& p, thread float& t, thread Ray& normal) {
+
+    float denom =  metal::dot(ray.direction, p.normal);
+    if(denom > 1e-6) {
+        float temp_t = metal::dot((p.position-ray.origin), p.normal) / denom;
+        if (temp_t >=0) {
+            float3 hitPoint = ray.origin + temp_t* ray.direction;
+            normal = {hitPoint, p.normal};
+            t = temp_t;
+            return true;
+        }
+
+    }
+
+
+    return false;
+}
+
+bool hitSphere(const thread Ray& ray, constant Sphere& s, thread float& t, thread Ray& normal) {
     float3 oc = ray.origin - s.position;
     float a = 1;// metal::dot(ray.direction, ray.direction); // We can eliminate this if we assume it is normalised.
     float b = 2.0 * metal::dot(oc, ray.direction);
@@ -80,6 +129,8 @@ kernel void raytrace(
     metal::texture2d<float, metal::access::write> output [[texture(0)]],  // Texture to render to.
                      constant SceneUniform& scene [[buffer(0)]],
                      constant Sphere* spheres [[buffer(1)]],
+                     constant Plane* planes [[buffer(2)]],
+                     constant Disc* discs [[buffer(3)]],
                      uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= output.get_width() || gid.y >= output.get_height()) return; // check if this
 
@@ -109,6 +160,30 @@ kernel void raytrace(
                 color = spheres[i].color * metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
             }
         }
+
+     for (int i = 0; i < scene.numPlanes; ++i) {
+         float t=1e20;
+         Ray normal;
+
+         bool isHit = hitPlane(castingRay, planes[i], t, normal);
+
+         if (isHit && t < closest_t ) {
+             closest_t = t;
+
+             color = planes[i].color * -1* metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
+         }
+     }
+
+//    for (int i = 0; i < scene.numDiscs; ++i) {
+//         float t=1e20;
+//         Ray normal;
+//         bool isHit = hitDisc(castingRay, discs[i], t, normal);
+//         if (isHit && t < closest_t ) {
+//             closest_t = t;
+//
+//             color = discs[i].color * metal::dot(normal.direction, metal::normalize(scene.lightPosition-normal.origin));
+//         }
+//     }
 
 
         output.write(float4(color,0), gid);

@@ -35,6 +35,8 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     private var isSKeyPressed = false
     private var isAKeyPressed = false
     private var isDKeyPressed = false
+    private var mouseXRad = Float.zero
+    private var mouseYRad = Float.zero
 
     public let device: MTLDevice
     let commandQueue: MTLCommandQueue
@@ -42,6 +44,9 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     var scene: Scene
     private var sceneUniformBuffer: MTLBuffer!
     private var sphereBuffer: MTLBuffer!
+    private var planeBuffer: MTLBuffer!
+    private var discBuffer: MTLBuffer!
+
     private var outputTexture: MTLTexture!
 
     var pipelineState: MTLComputePipelineState
@@ -65,7 +70,11 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         let scenePtr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
         scenePtr.pointee = scene.sceneUniform
 
-        self.sphereBuffer = self.device.makeBuffer(bytes: scene.spheres, length: MemoryLayout<Sphere>.stride * scene.spheres.count, options: [.storageModeShared])!
+        self.sphereBuffer = self.device.makeBuffer(bytes: scene.spheres, length: MemoryLayout<Sphere>.stride * Int(scene.sceneUniform.numSpheres), options: [.storageModeShared])!
+
+        self.planeBuffer = self.device.makeBuffer(bytes: scene.planes, length: MemoryLayout<Plane>.stride * Int(scene.sceneUniform.numPlanes), options: [.storageModeShared])!
+
+        self.discBuffer = self.device.makeBuffer(bytes: scene.discs, length: MemoryLayout<Disc>.stride * Int(scene.sceneUniform.numDiscs), options: [.storageModeShared])!
 
         // Output Offscreen buffer
         createOutputTexture(width: Int(metalKitView.drawableSize.width), height: Int(metalKitView.drawableSize.height))
@@ -103,6 +112,8 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         encoder.setTexture(outputTexture, index: 0)
         encoder.setBuffer(sceneUniformBuffer, offset: 0, index: 0)
         encoder.setBuffer(sphereBuffer, offset: 0, index: 1)
+        encoder.setBuffer(planeBuffer, offset: 0, index: 2)
+        encoder.setBuffer(discBuffer, offset: 0, index: 3)
 
         //one thread per pixel
         let w = pipelineState.threadExecutionWidth // ussually 32 for apple gpus., some hardware properry on how wide things can be computed in paralell
@@ -187,11 +198,14 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     }
 
     func didMoveMouse(deltaX: Float, deltaY: Float) {
-        let upAxis = scene.sceneUniform.camera.orientation.get1XYZ()
-        let leftAxis = scene.sceneUniform.camera.orientation.get0XYZ()
-        let xRot = matrix4x4_rotation(radians: -deltaX/250, axis: upAxis)
-        let yRot = matrix4x4_rotation(radians: deltaY/250, axis: leftAxis)
-        self.scene.sceneUniform.camera.orientation = yRot * xRot * self.scene.sceneUniform.camera.orientation
+        mouseXRad = remainder((mouseXRad - deltaX/250),(2*Float.pi))
+        mouseYRad = remainder((mouseYRad + deltaY/250),(2*Float.pi))
+        let originalMatrix = camera_inital_transform()
+        let upAxis = originalMatrix.get1XYZ()
+        let leftAxis = originalMatrix.get0XYZ()
+        let xRot = matrix4x4_rotation(radians: mouseXRad, axis: upAxis)
+        let yRot = matrix4x4_rotation(radians: mouseYRad, axis: leftAxis)
+        self.scene.sceneUniform.camera.orientation =  xRot * yRot * originalMatrix
         let ptr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
         ptr.pointee = self.scene.sceneUniform
     }
@@ -201,14 +215,17 @@ func createScene() -> Scene {
     let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-3), radius: 5, color: SIMD3<Float>(0.5, 0.5, 0)),
                               Sphere(position: SIMD3<Float>(15,8,-10), radius: 10, color: SIMD3<Float>(0, 0.5, 0.5)),
                               Sphere(position: SIMD3<Float>(-10,-5,-10), radius: 7, color: SIMD3<Float>(0, 0.5, 0.0)),
-                              Sphere(position: SIMD3<Float>(-10, 540,-100), radius: 500, color: SIMD3<Float>(1, 1, 1.0))]
+                              Sphere(position: SIMD3<Float>(-10, 540,-100), radius: 1, color: SIMD3<Float>(1, 1, 1.0))]
+
+    let planes: [Plane] = [Plane(position: SIMD3<Float>(0,5,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1))]
+    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,25,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1), radius: 0)]
     let camera = Camera(position: SIMD3<Float>(0, 0, 20),
                         orientation: camera_inital_transform(),
                         distanceToPlane: 50,
                         height: 40,
                         width: 40)
 
-    let sceneUniform = SceneUniform(camera: camera, lightPosition: SIMD3<Float>(0, 0, 20), numSpheres: Int32(spheres.count))
-    return Scene(sceneUniform: sceneUniform, spheres: spheres)
+    let sceneUniform = SceneUniform(camera: camera, lightPosition: SIMD3<Float>(0, 0, 20), numSpheres: Int32(spheres.count), numPlanes: Int32(planes.count), numDiscs: Int32(discs.count))
+    return Scene(sceneUniform: sceneUniform, spheres: spheres, planes: planes, discs: discs)
 }
 

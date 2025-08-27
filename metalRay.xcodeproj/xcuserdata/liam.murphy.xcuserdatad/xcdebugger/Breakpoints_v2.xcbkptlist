@@ -14,9 +14,9 @@
             filePath = "metalRay/Tracer.metal"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "86"
-            endingLineNumber = "86"
-            landmarkName = "raytrace( metal::texture2d&lt;float, metal::access::write&gt; output [[texture(0)]], // Texture to render to. constant SceneUniform&amp; scene [[buffer(0)]], constant Sphere* spheres [[buffer(1)]], uint2 gid [[thread_position_in_grid]])"
+            startingLineNumber = "137"
+            endingLineNumber = "137"
+            landmarkName = "raytrace( metal::texture2d&lt;float, metal::access::write&gt; output [[texture(0)]], // Texture to render to. constant SceneUniform&amp; scene [[buffer(0)]], constant Sphere* spheres [[buffer(1)]], constant Plane* planes [[buffer(2)]], constant Disc* discs [[buffer(3)]], uint2 gid [[thread_position_in_grid]])"
             landmarkType = "9">
          </BreakpointContent>
       </BreakpointProxy>

@@ -18,6 +18,19 @@ struct Box {
     var color: SIMD3<Float> // RGB
 }
 
+struct Plane {
+    var position: SIMD3<Float>  // A point on the plane
+    var normal: SIMD3<Float>
+    var color: SIMD3<Float>
+}
+
+struct Disc {
+    var position: SIMD3<Float>  // A point on the plane
+    var normal: SIMD3<Float>
+    var color: SIMD3<Float>
+    var radius: Float
+}
+
 struct Camera {
     var position: SIMD3<Float>
     var orientation: matrix_float4x4
@@ -35,9 +48,13 @@ struct SceneUniform {
     var camera: Camera
     var lightPosition: SIMD3<Float>
     var numSpheres: Int32
+    var numPlanes: Int32
+    var numDiscs: Int32
 }
 
 struct Scene { // Used for construction of scene, not to be transferred to GPU
     var sceneUniform: SceneUniform
     var spheres: [Sphere]
+    var planes: [Plane]
+    var discs: [Disc]
 }
