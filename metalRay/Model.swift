@@ -37,6 +37,7 @@ struct Camera {
     var distanceToPlane: Float
     var height: Float
     var width: Float
+    var padding: Float = 0
 }
 
 struct Ray {
@@ -46,10 +47,11 @@ struct Ray {
 
 struct SceneUniform {
     var camera: Camera
-    var lightPosition: SIMD3<Float>
     var numSpheres: Int32
     var numPlanes: Int32
     var numDiscs: Int32
+    var frameIndex: UInt32
+    var didChangeCamera: Bool
 }
 
 struct Scene { // Used for construction of scene, not to be transferred to GPU

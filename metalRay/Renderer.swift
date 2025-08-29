@@ -37,6 +37,7 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     private var isDKeyPressed = false
     private var mouseXRad = Float.zero
     private var mouseYRad = Float.zero
+    private var didCameraChange = false
 
     public let device: MTLDevice
     let commandQueue: MTLCommandQueue
@@ -48,8 +49,10 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     private var discBuffer: MTLBuffer!
 
     private var outputTexture: MTLTexture!
+    private var accumulationTexture: MTLTexture!
 
     var pipelineState: MTLComputePipelineState
+    var postProcPipelineState: MTLComputePipelineState
 
     @MainActor
     init?(metalKitView: TracerMTKView) {
@@ -65,6 +68,8 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         let function = library.makeFunction(name: "raytrace")!
         self.pipelineState = try! device.makeComputePipelineState(function: function)
 
+        let postProcFunc = library.makeFunction(name: "postProcess")!
+        self.postProcPipelineState = try! device.makeComputePipelineState(function: postProcFunc)
         super.init()
         self.sceneUniformBuffer = self.device.makeBuffer(length: MemoryLayout<SceneUniform>.stride, options: [.storageModeShared])
         let scenePtr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
@@ -82,34 +87,41 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
 
     func draw(in view: MTKView) {
+        scene.sceneUniform.frameIndex += 1
         // Camera update
         let cameraPointDir = scene.sceneUniform.camera.orientation.get2XYZ()
         let cameraLeftDir = scene.sceneUniform.camera.orientation.get0XYZ()
         let speed: Float = 0.25
+
         if isWKeyPressed {
             scene.sceneUniform.camera.position += (speed * cameraPointDir);
+            scene.sceneUniform.didChangeCamera = true
         }
         if isSKeyPressed {
             scene.sceneUniform.camera.position -= (speed * cameraPointDir);
+            scene.sceneUniform.didChangeCamera = true
         }
         if isDKeyPressed {
             scene.sceneUniform.camera.position += (speed * cameraLeftDir);
+            scene.sceneUniform.didChangeCamera = true
         }
         if isAKeyPressed {
             scene.sceneUniform.camera.position -=  (speed * cameraLeftDir);
+            scene.sceneUniform.didChangeCamera = true
         }
         let ptr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
         ptr.pointee = scene.sceneUniform
 
         /// Per frame updates hare
-        guard let drawable = view.currentDrawable,
+        guard
         let commandBuffer = commandQueue.makeCommandBuffer(),
         let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
 
         encoder.setComputePipelineState(pipelineState)
 
         // loading of our data
-        encoder.setTexture(outputTexture, index: 0)
+        encoder.setTexture(accumulationTexture, index: 0)
+        encoder.setTexture(accumulationTexture, index: 1)
         encoder.setBuffer(sceneUniformBuffer, offset: 0, index: 0)
         encoder.setBuffer(sphereBuffer, offset: 0, index: 1)
         encoder.setBuffer(planeBuffer, offset: 0, index: 2)
@@ -131,6 +143,16 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
             let duration = CACurrentMediaTime() - start
             print("Shader 'frame' rate is: \(1 / duration) Hz")
         }
+
+        guard let drawable = view.currentDrawable,
+        let postProcEncoder = commandBuffer.makeComputeCommandEncoder() else {return}
+        postProcEncoder.setComputePipelineState(postProcPipelineState)
+        postProcEncoder.setTexture(accumulationTexture, index: 0)
+        postProcEncoder.setTexture(outputTexture, index: 1)
+        postProcEncoder.dispatchThreads(grid, threadsPerThreadgroup: tgSize)
+        postProcEncoder.endEncoding()
+
+
         // We blit the offscreen buffer to the screen
         if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
               blitEncoder.copy(from: outputTexture,
@@ -148,6 +170,8 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
           }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+
+        scene.sceneUniform.didChangeCamera = false
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -157,6 +181,7 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     }
 
     func createOutputTexture(width: Int, height: Int) {
+        // output texture
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,
                                                             width: width,
                                                             height: height,
@@ -164,6 +189,16 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         desc.usage = [.shaderWrite, .shaderRead]
         desc.storageMode = .private
         outputTexture = device.makeTexture(descriptor: desc)
+
+        // accumulation texture
+        let accumDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
+                                                            width: width,
+                                                            height: height,
+                                                            mipmapped: false)
+        accumDesc.usage = [.shaderWrite, .shaderRead, .renderTarget]
+        accumDesc.storageMode = .private
+        accumulationTexture = device.makeTexture(descriptor: accumDesc)
+
     }
 
     // keyboard input / mouse input delegate implementation
@@ -208,6 +243,7 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         self.scene.sceneUniform.camera.orientation =  xRot * yRot * originalMatrix
         let ptr = sceneUniformBuffer.contents().bindMemory(to: SceneUniform.self, capacity: 1)
         ptr.pointee = self.scene.sceneUniform
+        scene.sceneUniform.didChangeCamera = true
     }
 }
 
@@ -216,19 +252,24 @@ func createScene() -> Scene {
                               Sphere(position: SIMD3<Float>(1,2,0), radius: 0.7, color: SIMD3<Float>(0, 0.5, 0.5)),
                               Sphere(position: SIMD3<Float>(-2,-2,-3.1), radius: 1.2, color: SIMD3<Float>(0, 0.5, 0.0))]
 
-    let planes: [Plane] = [Plane(position: SIMD3<Float>(0,3,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
-                           Plane(position: SIMD3<Float>(0,-4,0), normal: SIMD3<Float>(0,-1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
-                           Plane(position: SIMD3<Float>(4,0,0), normal: SIMD3<Float>(1,0,0), color: SIMD3<Float>(0.75,0,0)),
-                           Plane(position: SIMD3<Float>(-4,0,0), normal: SIMD3<Float>(-1,0,0), color: SIMD3<Float>(0,0.75,0)),
-                           Plane(position: SIMD3<Float>(0,0,-5), normal: SIMD3<Float>(0,0,-1), color: SIMD3<Float>(0.5,0.5,0.5))]
-    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,-3.9,0), normal: SIMD3<Float>(0,-1,0), color: SIMD3<Float>(1,1,1), radius: 1)]
+    let planes: [Plane] = [Plane(position: SIMD3<Float>(0,3,0), normal: SIMD3<Float>(0,-1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
+                           Plane(position: SIMD3<Float>(0,-4,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
+                           Plane(position: SIMD3<Float>(4,0,0), normal: SIMD3<Float>(-1,0,0), color: SIMD3<Float>(0.75,0,0)),
+                           Plane(position: SIMD3<Float>(-4,0,0), normal: SIMD3<Float>(1,0,0), color: SIMD3<Float>(0,0.75,0)),
+                           Plane(position: SIMD3<Float>(0,0,-5), normal: SIMD3<Float>(0,0,1), color: SIMD3<Float>(0.5,0.5,0.5))]
+    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,-3.9,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1), radius: 1)]
     let camera = Camera(position: SIMD3<Float>(0, 0, 20),
                         orientation: camera_inital_transform(),
                         distanceToPlane: 50,
                         height: 40,
                         width: 40)
 
-    let sceneUniform = SceneUniform(camera: camera, lightPosition: SIMD3<Float>(0, 0, 20), numSpheres: Int32(spheres.count), numPlanes: Int32(planes.count), numDiscs: Int32(discs.count))
+    let sceneUniform = SceneUniform(camera: camera,
+                                    numSpheres: Int32(spheres.count),
+                                    numPlanes: Int32(planes.count),
+                                    numDiscs: Int32(discs.count),
+                                    frameIndex: 0,
+                                    didChangeCamera: false);
     return Scene(sceneUniform: sceneUniform, spheres: spheres, planes: planes, discs: discs)
 }
 
