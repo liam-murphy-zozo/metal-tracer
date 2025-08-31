@@ -45,11 +45,28 @@ struct Ray {
     var dir: SIMD3<Float>
 }
 
+struct Mesh { // not used for bindings but just for CPU side management of data.
+    var vertices: [Float]
+    var indices: [UInt32]
+}
+
+struct MeshMetaData {
+    var numVertices: UInt32
+    var numIndices: UInt32
+    var vertexStride: UInt32
+    var indexStride: UInt32
+}
+
+
+
 struct SceneUniform {
     var camera: Camera
     var numSpheres: Int32
     var numPlanes: Int32
     var numDiscs: Int32
+    var numMeshes: Int32
+    var numVertices: Int32
+    var numIndices: Int32
     var frameIndex: UInt32
     var didChangeCamera: Bool
 }
@@ -59,4 +76,8 @@ struct Scene { // Used for construction of scene, not to be transferred to GPU
     var spheres: [Sphere]
     var planes: [Plane]
     var discs: [Disc]
+    var meshVertices: [Float]
+    var meshIndices: [UInt32]
+    var meshMetaData: [MeshMetaData]
 }
+

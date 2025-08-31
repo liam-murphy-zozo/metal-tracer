@@ -6,8 +6,6 @@
 //
 
 // TODO LIST:
-// - Multi Sampling per pixel
-// - Iterative path tracing (area lights)
 // - Mesh loader
 // - Triangle/ Mesh Rendering
 // - Pack all objects into one uniform
@@ -30,7 +28,6 @@ protocol RendererInputDelegate: AnyObject {
 }
 
 class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
-
     private var isWKeyPressed = false
     private var isSKeyPressed = false
     private var isAKeyPressed = false
@@ -47,6 +44,9 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
     private var sphereBuffer: MTLBuffer!
     private var planeBuffer: MTLBuffer!
     private var discBuffer: MTLBuffer!
+    private var vertexBuffer: MTLBuffer! // floats
+    private var indexBuffer: MTLBuffer! // Uints?
+    private var meshMetaDataBuffer: MTLBuffer!
 
     private var outputTexture: MTLTexture!
     private var accumulationTexture: MTLTexture!
@@ -80,6 +80,12 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         self.planeBuffer = self.device.makeBuffer(bytes: scene.planes, length: MemoryLayout<Plane>.stride * Int(scene.sceneUniform.numPlanes), options: [.storageModeShared])!
 
         self.discBuffer = self.device.makeBuffer(bytes: scene.discs, length: MemoryLayout<Disc>.stride * Int(scene.sceneUniform.numDiscs), options: [.storageModeShared])!
+
+        self.vertexBuffer = self.device.makeBuffer(bytes: scene.meshVertices, length: MemoryLayout<Float>.stride * Int(scene.sceneUniform.numVertices), options: [.storageModeShared]) // we don't * 3 because its originally a float array anyways
+
+        self.indexBuffer = self.device.makeBuffer(bytes: scene.meshIndices, length: MemoryLayout<UInt32>.stride * Int(scene.sceneUniform.numIndices), options: [.storageModeShared])
+
+        self.meshMetaDataBuffer = self.device.makeBuffer(bytes: scene.meshMetaData, length: MemoryLayout<MeshMetaData>.stride * Int(scene.sceneUniform.numMeshes), options: [.storageModeShared])
 
         // Output Offscreen buffer
         createOutputTexture(width: Int(metalKitView.drawableSize.width), height: Int(metalKitView.drawableSize.height))
@@ -126,6 +132,9 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         encoder.setBuffer(sphereBuffer, offset: 0, index: 1)
         encoder.setBuffer(planeBuffer, offset: 0, index: 2)
         encoder.setBuffer(discBuffer, offset: 0, index: 3)
+        encoder.setBuffer(meshMetaDataBuffer, offset: 0, index: 4)
+        encoder.setBuffer(vertexBuffer, offset: 0, index: 5)
+        encoder.setBuffer(indexBuffer, offset: 0, index: 6)
 
         //one thread per pixel
         let w = pipelineState.threadExecutionWidth // ussually 32 for apple gpus., some hardware properry on how wide things can be computed in paralell
@@ -137,12 +146,12 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
         encoder.dispatchThreads(grid, threadsPerThreadgroup: tgSize) // we could just have 1D shape...
 
         encoder.endEncoding()
-        let start = CACurrentMediaTime()
-        // submit command buffer
-        commandBuffer.addCompletedHandler { _ in
-            let duration = CACurrentMediaTime() - start
-            print("Shader 'frame' rate is: \(1 / duration) Hz")
-        }
+//        let start = CACurrentMediaTime()
+//        // submit command buffer
+//        commandBuffer.addCompletedHandler { _ in
+//            let duration = CACurrentMediaTime() - start
+//            print("Shader 'frame' rate is: \(1 / duration) Hz")
+//        }
 
         guard let drawable = view.currentDrawable,
         let postProcEncoder = commandBuffer.makeComputeCommandEncoder() else {return}
@@ -249,7 +258,7 @@ class Renderer: NSObject, MTKViewDelegate, RendererInputDelegate {
 
 func createScene() -> Scene {
     let spheres: [Sphere] = [ Sphere(position: SIMD3<Float>(0,0,-2), radius: 2, color: SIMD3<Float>(0.5, 0.5, 0)),
-                              Sphere(position: SIMD3<Float>(1,2,0), radius: 0.7, color: SIMD3<Float>(0, 0.5, 0.5)),
+                              Sphere(position: SIMD3<Float>(1,2,5), radius: 0.7, color: SIMD3<Float>(0, 0.5, 0.5)),
                               Sphere(position: SIMD3<Float>(-2,-2,-3.1), radius: 1.2, color: SIMD3<Float>(0, 0.5, 0.0))]
 
     let planes: [Plane] = [Plane(position: SIMD3<Float>(0,3,0), normal: SIMD3<Float>(0,-1,0), color: SIMD3<Float>(0.5,0.5,0.5)),
@@ -257,7 +266,30 @@ func createScene() -> Scene {
                            Plane(position: SIMD3<Float>(4,0,0), normal: SIMD3<Float>(-1,0,0), color: SIMD3<Float>(0.75,0,0)),
                            Plane(position: SIMD3<Float>(-4,0,0), normal: SIMD3<Float>(1,0,0), color: SIMD3<Float>(0,0.75,0)),
                            Plane(position: SIMD3<Float>(0,0,-5), normal: SIMD3<Float>(0,0,1), color: SIMD3<Float>(0.5,0.5,0.5))]
-    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,-3.9,0), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1), radius: 1)]
+    let discs: [Disc] = [Disc(position: SIMD3<Float>(0,-3.9,5), normal: SIMD3<Float>(0,1,0), color: SIMD3<Float>(1,1,1), radius: 1)]
+
+    let meshFilenames: [String] = ["3DModels/foot_model.obj"]
+    var meshVertices: [Float] = []
+    var meshIndices: [UInt32] = []
+
+    var meshMetaData: [MeshMetaData] = []
+    for meshFilename in meshFilenames {
+        guard let loadedMesh = loadMesh(filename: meshFilename) else {
+            print("Error: Failed to load mesh: \(meshFilename)")
+            break
+        }
+        meshVertices.append(contentsOf: loadedMesh.vertices) // is this slow?
+        meshIndices.append(contentsOf: loadedMesh.indices)
+
+        let meshMetaDataEntry: MeshMetaData = MeshMetaData(
+            numVertices: UInt32(loadedMesh.vertices.count),
+            numIndices: UInt32(loadedMesh.indices.count),
+            vertexStride: UInt32(MemoryLayout<Float>.stride),
+            indexStride: UInt32(MemoryLayout<UInt32>.stride)
+        )
+        meshMetaData.append(meshMetaDataEntry)
+    }
+
     let camera = Camera(position: SIMD3<Float>(0, 0, 20),
                         orientation: camera_inital_transform(),
                         distanceToPlane: 50,
@@ -268,8 +300,12 @@ func createScene() -> Scene {
                                     numSpheres: Int32(spheres.count),
                                     numPlanes: Int32(planes.count),
                                     numDiscs: Int32(discs.count),
+                                    numMeshes: Int32(meshFilenames.count),
+                                    numVertices: Int32(meshVertices.count),
+                                    numIndices: Int32(meshIndices.count),
                                     frameIndex: 0,
                                     didChangeCamera: false);
-    return Scene(sceneUniform: sceneUniform, spheres: spheres, planes: planes, discs: discs)
+
+    return Scene(sceneUniform: sceneUniform, spheres: spheres, planes: planes, discs: discs, meshVertices: meshVertices, meshIndices: meshIndices, meshMetaData: meshMetaData)
 }
 

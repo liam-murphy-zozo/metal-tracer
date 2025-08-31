@@ -33,6 +33,13 @@ struct Disc {
     float radius;
 };
 
+struct MeshMetaData {
+    uint numVertices;
+    uint numIndices;
+    uint vertexStride;
+    uint indexStride;
+};
+
 struct Camera {
     float3 position; //16 (float3 is 16 in metal)
     matrix_float4x4 orientation; // 64 bytes
@@ -52,6 +59,9 @@ struct SceneUniform {
     int numSpheres;
     int numPlanes;
     int numDiscs;
+    int numMeshes;
+    int numVertices;
+    int numIndices;
     uint frameIndex;
     bool didChangeCamera;
 };
@@ -137,15 +147,16 @@ uint hash2D(uint x, uint y) {
     return seed ^ (seed >> 16);
 }
 
-Ray constructCameraRay(uint2 gid, constant Camera& camera, const float width, const float height) {
+Ray constructCameraRay(uint2 gid, constant Camera& camera, const float width, const float height, uint seed) {
     float widthStride = camera.width / width;
     float heightStride = camera.height / height;
 
     Ray castingRay;
     castingRay.origin = camera.position;
+    float offset = lcg(seed) -0.5; // more circular distribution if used for x and y right?
     float4 forward = camera.orientation[2] * camera.distToPlane;
-    float4 left = camera.orientation[0] * (gid.x*widthStride - ( widthStride * width/2));
-    float4 up = camera.orientation[1]   * (gid.y*heightStride - (heightStride * height/2));
+    float4 left = camera.orientation[0] * (gid.x*widthStride - ( widthStride * width/2) + offset*widthStride);
+    float4 up = camera.orientation[1]   * (gid.y*heightStride - (heightStride * height/2) + offset*heightStride);
     float4 newDir = forward + left + up;
 
     castingRay.direction = {newDir.x , newDir.y, newDir.z};
@@ -290,29 +301,31 @@ kernel void raytrace(
     constant Sphere* spheres [[buffer(1)]],
     constant Plane* planes [[buffer(2)]],
     constant Disc* discs [[buffer(3)]],
+    constant MeshMetaData* meshes [[buffer(4)]],
+    constant float* vertexBuffer [[buffer(5)]],
+    constant uint* indiceBuffer [[buffer(6)]],
     uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
-
-        Ray castingRay = constructCameraRay(gid, scene.camera, output.get_width(), output.get_height());
-
-
-    float4 prevSample = inputTexture.read(gid);
-
     uint seed = hash2D(gid.x+ scene.frameIndex * 7919u, gid.y);
+    float4 prevSample = inputTexture.read(gid);
+    float4 runningSample(0);
+    for(int s=0; s<10; s++) {
+        Ray castingRay = constructCameraRay(gid, scene.camera, output.get_width(), output.get_height(), seed);
+        float3 newSample = TraceRay(castingRay,
+                                    scene,
+                                    spheres,
+                                    planes,
+                                    discs,
+                                    seed,
+                                    5);
+        runningSample+= float4(newSample, 1);
+    }
 
-    float3 newSample = TraceRay(castingRay,
-                                scene,
-                                spheres,
-                                planes,
-                                discs,
-                                seed,
-                                5);
-        if(scene.didChangeCamera) {
-            output.write(float4(newSample, 1), gid);
-            return;
-        }
-//        float blendWeight = 1.0 / (scene.frameIndex +1);
-//        float4 updatedSample = mix(prevSample, float4(newSample, 1), blendWeight);
-        float4 updatedSample = prevSample + float4(newSample, 1);
-        output.write(updatedSample, gid);
+    if(scene.didChangeCamera) {
+        output.write(runningSample, gid);
+        return;
+    }
+
+    float4 updatedSample = prevSample + runningSample;
+    output.write(updatedSample, gid);
 }
